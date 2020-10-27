@@ -19,6 +19,9 @@ from datetime import datetime
 from pathlib import Path, PosixPath
 from typing import Dict, List, Tuple
 
+import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
 import numpy as np
 import pandas as pd
 import torch
@@ -35,7 +38,6 @@ from papercode.metrics import calc_nse
 from papercode.nseloss import NSELoss
 from papercode.utils import create_h5_files, get_basin_list
 
-import os
 import tempfile
 import torch
 import torch.distributed as dist
