@@ -46,6 +46,8 @@ import torch.multiprocessing as mp
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+import math
+
 ###########
 # Globals #
 ###########
@@ -56,7 +58,7 @@ GLOBAL_SETTINGS = {
     'clip_norm': True,
     'clip_value': 1,
     'dropout': 0.4,
-    'epochs': 16,
+    'epochs': 8,
     'hidden_size': 256,
     'initial_forget_gate_bias': 5,
     'log_interval': 50,
@@ -416,7 +418,7 @@ def dist_train(rank, world_size, cfg):
 
     map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
 
-    for epoch in range(1, int(cfg["epochs"] / world_size) + 1):
+    for epoch in range(1, math.ceil(cfg["epochs"] / world_size) + 1):
         # set new learning rate
         if epoch in learning_rates.keys():
             for param_group in optimizer.param_groups:
