@@ -66,6 +66,7 @@ GLOBAL_SETTINGS = {
     'val_end': pd.to_datetime('30091999', format='%d%m%Y')
 }
 
+
 # check if GPU is available
 # DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -83,10 +84,13 @@ def get_args() -> Dict:
         Dictionary containing the run config.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=["train", "evaluate", "eval_robustness"])
-    parser.add_argument('--camels_root', type=str, help="Root directory of CAMELS data set")
+    parser.add_argument('mode',
+                        choices=["train", "evaluate", "eval_robustness"])
+    parser.add_argument('--camels_root', type=str,
+                        help="Root directory of CAMELS data set")
     parser.add_argument('--seed', type=int, required=False, help="Random seed")
-    parser.add_argument('--run_dir', type=str, help="For evaluation mode. Path to run directory.")
+    parser.add_argument('--run_dir', type=str,
+                        help="For evaluation mode. Path to run directory.")
     parser.add_argument('--cache_data',
                         type=bool,
                         default=False,
@@ -114,8 +118,10 @@ def get_args() -> Dict:
         # generate random seed for this run
         cfg["seed"] = int(np.random.uniform(low=0, high=1e6))
 
-    if (cfg["mode"] in ["evaluate", "eval_robustness"]) and (cfg["run_dir"] is None):
-        raise ValueError("In evaluation mode a run directory (--run_dir) has to be specified")
+    if (cfg["mode"] in ["evaluate", "eval_robustness"]) and (
+            cfg["run_dir"] is None):
+        raise ValueError(
+            "In evaluation mode a run directory (--run_dir) has to be specified")
 
     # combine global settings with user config
     cfg.update(GLOBAL_SETTINGS)
@@ -205,6 +211,7 @@ def _prepare_data(cfg: Dict, basins: List) -> Dict:
 
     return cfg
 
+
 ################
 # Define Model #
 ################
@@ -250,9 +257,13 @@ class Model(nn.Module):
         self.no_static = no_static
 
         if self.concat_static or self.no_static:
-            self.lstm = LSTM(input_size=input_size_dyn,
-                             hidden_size=hidden_size,
-                             initial_forget_bias=initial_forget_bias)
+            # self.lstm = LSTM(input_size=input_size_dyn,
+            #                  hidden_size=hidden_size,
+            #                  initial_forget_bias=initial_forget_bias)
+            self.lstm = torch.nn.LSTM(input_size=input_size_dyn,
+                                      hidden_size=hidden_size,
+                                      batch_first=True)
+
         else:
             self.lstm = EALSTM(input_size_dyn=input_size_dyn,
                                input_size_stat=input_size_stat,
@@ -305,12 +316,14 @@ def setup(rank, world_size):
 
 def cleanup():
     dist.destroy_process_group()
-    
+
+
 def run_demo(demo_fn, world_size, cfg):
     mp.spawn(demo_fn,
-             args=(world_size,cfg),
+             args=(world_size, cfg),
              nprocs=world_size,
              join=True)
+
 
 def dist_train(rank, world_size, cfg):
     """Train model.
@@ -320,10 +333,10 @@ def dist_train(rank, world_size, cfg):
     cfg : Dict
         Dictionary containing the run config
     """
-    
+
     print(f"Running basic DDP example on rank {rank}. {world_size}")
     setup(rank, world_size)
-    
+
     # fix random seeds
     random.seed(cfg["seed"])
     np.random.seed(cfg["seed"])
@@ -331,19 +344,19 @@ def dist_train(rank, world_size, cfg):
     torch.manual_seed(cfg["seed"])
 
     basins = get_basin_list()
-    
+
     if rank == 0:
         # create folder structure for this run
         cfg = _setup_run(cfg)
 
         # prepare data for training
         cfg = _prepare_data(cfg=cfg, basins=basins)
-        
+
         with open(str(cfg["camels_root"]) + '/cfg.pkl', 'wb') as f:
             pickle.dump(cfg, f, pickle.HIGHEST_PROTOCOL)
-    
+
     dist.barrier()
-    
+
     with open(str(cfg["camels_root"]) + '/cfg.pkl', 'rb') as f:
         cfg = pickle.load(f)
 
@@ -354,13 +367,13 @@ def dist_train(rank, world_size, cfg):
                   concat_static=cfg["concat_static"],
                   cache=cfg["cache_data"],
                   no_static=cfg["no_static"])
-    
+
     sampler = torch.utils.data.distributed.DistributedSampler(
         ds,
         num_replicas=world_size,
         rank=rank
     )
-    
+
     loader = DataLoader(ds,
                         batch_size=cfg["batch_size"],
                         shuffle=False,
@@ -371,25 +384,22 @@ def dist_train(rank, world_size, cfg):
     # create model and optimizer
     input_size_stat = 0 if cfg["no_static"] else 27
     input_size_dyn = 5 if (cfg["no_static"] or not cfg["concat_static"]) else 32
-    
-    # model = Model(input_size_dyn=input_size_dyn,
-    #               input_size_stat=input_size_stat,
-    #               hidden_size=cfg["hidden_size"],
-    #               initial_forget_bias=cfg["initial_forget_gate_bias"],
-    #               dropout=cfg["dropout"],
-    #               concat_static=cfg["concat_static"],
-    #               no_static=cfg["no_static"]).to(rank)
 
-    model = torch.nn.LSTM(input_size=input_size_dyn,
-                          hidden_size=cfg["hidden_size"],
-                          dropout=cfg["dropout"])
+    model = Model(input_size_dyn=input_size_dyn,
+                  input_size_stat=input_size_stat,
+                  hidden_size=cfg["hidden_size"],
+                  initial_forget_bias=cfg["initial_forget_gate_bias"],
+                  dropout=cfg["dropout"],
+                  concat_static=cfg["concat_static"],
+                  no_static=cfg["no_static"])
 
     # if cfg["initial_forget_gate_bias"] != 0:
     #     model.bias.shape
-    model = model.to(rank)
-    ddp_model = DDP(model, device_ids=[rank])
 
-    optimizer = torch.optim.Adam(ddp_model.parameters(), lr=cfg["learning_rate"])
+    ddp_model = DDP(model.to(rank), device_ids=[rank])
+
+    optimizer = torch.optim.Adam(ddp_model.parameters(),
+                                 lr=cfg["learning_rate"])
 
     # define loss function
     if cfg["use_mse"]:
@@ -399,36 +409,38 @@ def dist_train(rank, world_size, cfg):
 
     # reduce learning rates after each 10 epochs
     learning_rates = {11: 5e-4, 21: 1e-4}
-    
+
     CHECKPOINT_PATH = tempfile.gettempdir() + "/model.checkpoint"
 
     map_location = {'cuda:%d' % 0: 'cuda:%d' % rank}
-    
-    for epoch in range(1, int(cfg["epochs"]/world_size) + 1):
+
+    for epoch in range(1, int(cfg["epochs"] / world_size) + 1):
         # set new learning rate
         if epoch in learning_rates.keys():
             for param_group in optimizer.param_groups:
                 param_group["lr"] = learning_rates[epoch]
-        
+
         if rank == 0:
             torch.save(ddp_model.state_dict(), CHECKPOINT_PATH)
-        
+
         dist.barrier()
 
-        ddp_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=map_location))
-    
-#         optimizer.zero_grad()
+        ddp_model.load_state_dict(
+            torch.load(CHECKPOINT_PATH, map_location=map_location))
 
-        train_epoch(ddp_model, optimizer, loss_func, loader, cfg, epoch, cfg["use_mse"], rank)
+        #         optimizer.zero_grad()
 
-#         model_path = cfg["run_dir"] / f"model_epoch{epoch}.pt"
-#         torch.save(ddp_model.state_dict(), str(model_path))
-    
-#     if rank == 0:
-#         os.remove(CHECKPOINT_PATH)
+        train_epoch(ddp_model, optimizer, loss_func, loader, cfg, epoch,
+                    cfg["use_mse"], rank)
+
+    #         model_path = cfg["run_dir"] / f"model_epoch{epoch}.pt"
+    #         torch.save(ddp_model.state_dict(), str(model_path))
+
+    #     if rank == 0:
+    #         os.remove(CHECKPOINT_PATH)
 
     cleanup()
-    
+
 
 def train(cfg):
     """Train model.
@@ -491,14 +503,17 @@ def train(cfg):
             for param_group in optimizer.param_groups:
                 param_group["lr"] = learning_rates[epoch]
 
-        train_epoch(model, optimizer, loss_func, loader, cfg, epoch, cfg["use_mse"])
+        train_epoch(model, optimizer, loss_func, loader, cfg, epoch,
+                    cfg["use_mse"])
 
         model_path = cfg["run_dir"] / f"model_epoch{epoch}.pt"
         torch.save(model.state_dict(), str(model_path))
 
 
-def train_epoch(model: nn.Module, optimizer: torch.optim.Optimizer, loss_func: nn.Module,
-                loader: DataLoader, cfg: Dict, epoch: int, use_mse: bool,rank=0):
+def train_epoch(model: nn.Module, optimizer: torch.optim.Optimizer,
+                loss_func: nn.Module,
+                loader: DataLoader, cfg: Dict, epoch: int, use_mse: bool,
+                rank=0):
     """Train model for a single epoch.
 
     Parameters
@@ -523,7 +538,7 @@ def train_epoch(model: nn.Module, optimizer: torch.optim.Optimizer, loss_func: n
     model.train()
 
     # process bar handle
-    pbar = tqdm(loader, file=sys.stdout,position=rank)
+    pbar = tqdm(loader, file=sys.stdout, position=rank)
     pbar.set_description(f'# Epoch {epoch}')
 
     # Iterate in batches over training set
@@ -556,7 +571,8 @@ def train_epoch(model: nn.Module, optimizer: torch.optim.Optimizer, loss_func: n
         loss.backward()
 
         if cfg["clip_norm"]:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["clip_value"])
+            torch.nn.utils.clip_grad_norm_(model.parameters(),
+                                           cfg["clip_value"])
 
         # perform parameter update
         optimizer.step()
@@ -580,7 +596,7 @@ def evaluate(user_cfg: Dict):
 
     # get attribute means/stds
     db_path = str(user_cfg["run_dir"] / "attributes.db")
-    attributes = load_attributes(db_path=db_path, 
+    attributes = load_attributes(db_path=db_path,
                                  basins=basins,
                                  drop_lat_lon=True)
     means = attributes.mean()
@@ -588,7 +604,8 @@ def evaluate(user_cfg: Dict):
 
     # create model
     input_size_stat = 0 if run_cfg["no_static"] else 27
-    input_size_dyn = 5 if (run_cfg["no_static"] or not run_cfg["concat_static"]) else 32
+    input_size_dyn = 5 if (
+                run_cfg["no_static"] or not run_cfg["concat_static"]) else 32
     model = Model(input_size_dyn=input_size_dyn,
                   input_size_stat=input_size_stat,
                   hidden_size=run_cfg["hidden_size"],
@@ -600,12 +617,14 @@ def evaluate(user_cfg: Dict):
     weight_file = user_cfg["run_dir"] / 'model_epoch30.pt'
     model.load_state_dict(torch.load(weight_file, map_location=DEVICE))
 
-    date_range = pd.date_range(start=GLOBAL_SETTINGS["val_start"], end=GLOBAL_SETTINGS["val_end"])
+    date_range = pd.date_range(start=GLOBAL_SETTINGS["val_start"],
+                               end=GLOBAL_SETTINGS["val_end"])
     results = {}
     for basin in tqdm(basins):
         ds_test = CamelsTXT(camels_root=user_cfg["camels_root"],
                             basin=basin,
-                            dates=[GLOBAL_SETTINGS["val_start"], GLOBAL_SETTINGS["val_end"]],
+                            dates=[GLOBAL_SETTINGS["val_start"],
+                                   GLOBAL_SETTINGS["val_end"]],
                             is_train=False,
                             seq_length=run_cfg["seq_length"],
                             with_attributes=True,
@@ -613,18 +632,21 @@ def evaluate(user_cfg: Dict):
                             attribute_stds=stds,
                             concat_static=run_cfg["concat_static"],
                             db_path=db_path)
-        loader = DataLoader(ds_test, batch_size=1024, shuffle=False, num_workers=4)
+        loader = DataLoader(ds_test, batch_size=1024, shuffle=False,
+                            num_workers=4)
 
         preds, obs = evaluate_basin(model, loader)
 
-        df = pd.DataFrame(data={'qobs': obs.flatten(), 'qsim': preds.flatten()}, index=date_range)
+        df = pd.DataFrame(data={'qobs': obs.flatten(), 'qsim': preds.flatten()},
+                          index=date_range)
 
         results[basin] = df
 
     _store_results(user_cfg, run_cfg, results)
 
 
-def evaluate_basin(model: nn.Module, loader: DataLoader) -> Tuple[np.ndarray, np.ndarray]:
+def evaluate_basin(model: nn.Module, loader: DataLoader) -> Tuple[
+    np.ndarray, np.ndarray]:
     """Evaluate model on a single basin
 
     Parameters
@@ -700,13 +722,14 @@ def eval_robustness(user_cfg: Dict):
         run_cfg = json.load(fp)
 
     if run_cfg["concat_static"] or run_cfg["no_static"]:
-        raise NotImplementedError("This function is only implemented for EA-LSTM models")
+        raise NotImplementedError(
+            "This function is only implemented for EA-LSTM models")
 
     basins = get_basin_list()
 
     # get attribute means/stds
     db_path = str(user_cfg["run_dir"] / "attributes.db")
-    attributes = load_attributes(db_path=db_path, 
+    attributes = load_attributes(db_path=db_path,
                                  basins=basins,
                                  drop_lat_lon=True)
     means = attributes.mean()
@@ -726,22 +749,26 @@ def eval_robustness(user_cfg: Dict):
     for basin in pbar:
         ds_test = CamelsTXT(camels_root=user_cfg["camels_root"],
                             basin=basin,
-                            dates=[GLOBAL_SETTINGS["val_start"], GLOBAL_SETTINGS["val_end"]],
+                            dates=[GLOBAL_SETTINGS["val_start"],
+                                   GLOBAL_SETTINGS["val_end"]],
                             is_train=False,
                             with_attributes=True,
                             attribute_means=means,
                             attribute_stds=stds,
                             db_path=db_path)
-        loader = DataLoader(ds_test, batch_size=len(ds_test), shuffle=False, num_workers=0)
+        loader = DataLoader(ds_test, batch_size=len(ds_test), shuffle=False,
+                            num_workers=0)
         basin_results = defaultdict(list)
         step = 1
         for scale in scales:
             for _ in range(1 if scale == 0.0 else n_repetitions):
-                noise = np.random.normal(loc=0, scale=scale, size=27).astype(np.float32)
+                noise = np.random.normal(loc=0, scale=scale, size=27).astype(
+                    np.float32)
                 noise = torch.from_numpy(noise).to(DEVICE)
                 nse = eval_with_added_noise(model, loader, noise)
                 basin_results[scale].append(nse)
-                pbar.set_postfix_str(f"Basin progress: {step}/{(len(scales)-1)*n_repetitions+1}")
+                pbar.set_postfix_str(
+                    f"Basin progress: {step}/{(len(scales) - 1) * n_repetitions + 1}")
                 step += 1
 
         overall_results[basin] = basin_results
@@ -753,7 +780,8 @@ def eval_robustness(user_cfg: Dict):
         pickle.dump(overall_results, fp)
 
 
-def eval_with_added_noise(model: torch.nn.Module, loader: DataLoader, noise: torch.Tensor) -> float:
+def eval_with_added_noise(model: torch.nn.Module, loader: DataLoader,
+                          noise: torch.Tensor) -> float:
     """Evaluate model on a single basin with added noise
 
     Parameters
@@ -810,7 +838,8 @@ def _store_results(user_cfg: Dict, run_cfg: Dict, results: pd.DataFrame):
 
     """
     if run_cfg["no_static"]:
-        file_name = user_cfg["run_dir"] / f"lstm_no_static_seed{run_cfg['seed']}.p"
+        file_name = user_cfg[
+                        "run_dir"] / f"lstm_no_static_seed{run_cfg['seed']}.p"
     else:
         if run_cfg["concat_static"]:
             file_name = user_cfg["run_dir"] / f"lstm_seed{run_cfg['seed']}.p"
@@ -825,7 +854,7 @@ def _store_results(user_cfg: Dict, run_cfg: Dict, results: pd.DataFrame):
 
 if __name__ == "__main__":
     config = get_args()
-    
+
     if config["mode"] == 'train':
         n_gpus = torch.cuda.device_count()
         run_demo(dist_train, n_gpus, config)
