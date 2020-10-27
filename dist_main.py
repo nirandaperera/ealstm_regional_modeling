@@ -543,7 +543,7 @@ def train_epoch(model: nn.Module, optimizer: torch.optim.Optimizer,
 
     # process bar handle
     pbar = tqdm(loader, file=sys.stdout, position=rank)
-    pbar.set_description(f'# Epoch {epoch}')
+    pbar.set_description(f'# Epoch {epoch}[rank {rank}]')
 
     # Iterate in batches over training set
     for data in pbar:
