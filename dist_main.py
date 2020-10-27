@@ -39,9 +39,8 @@ import os
 import tempfile
 import torch
 import torch.distributed as dist
-import torch.nn as nn
 import torch.optim as optim
-    import torch.multiprocessing as mp
+import torch.multiprocessing as mp
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -55,7 +54,7 @@ GLOBAL_SETTINGS = {
     'clip_norm': True,
     'clip_value': 1,
     'dropout': 0.4,
-    'epochs': 30,
+    'epochs': 2,
     'hidden_size': 256,
     'initial_forget_gate_bias': 5,
     'log_interval': 50,
@@ -373,14 +372,21 @@ def dist_train(rank, world_size, cfg):
     input_size_stat = 0 if cfg["no_static"] else 27
     input_size_dyn = 5 if (cfg["no_static"] or not cfg["concat_static"]) else 32
     
-    model = Model(input_size_dyn=input_size_dyn,
-                  input_size_stat=input_size_stat,
-                  hidden_size=cfg["hidden_size"],
-                  initial_forget_bias=cfg["initial_forget_gate_bias"],
-                  dropout=cfg["dropout"],
-                  concat_static=cfg["concat_static"],
-                  no_static=cfg["no_static"]).to(rank)
-    
+    # model = Model(input_size_dyn=input_size_dyn,
+    #               input_size_stat=input_size_stat,
+    #               hidden_size=cfg["hidden_size"],
+    #               initial_forget_bias=cfg["initial_forget_gate_bias"],
+    #               dropout=cfg["dropout"],
+    #               concat_static=cfg["concat_static"],
+    #               no_static=cfg["no_static"]).to(rank)
+
+    model = torch.nn.LSTM(input_size=input_size_dyn,
+                          hidden_size=cfg["hidden_size"],
+                          dropout=cfg["dropout"])
+
+    # if cfg["initial_forget_gate_bias"] != 0:
+    #     model.bias.shape
+    model = model.to(rank)
     ddp_model = DDP(model, device_ids=[rank])
 
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=cfg["learning_rate"])
